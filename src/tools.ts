@@ -20,6 +20,7 @@ import { WebSearchTool } from './tools/WebSearchTool/WebSearchTool'
 import { URLFetcherTool } from './tools/URLFetcherTool/URLFetcherTool'
 import { OceanDashboardTool } from './tools/OceanDashboardTool/OceanDashboardTool'
 import { OceanDataTool } from './tools/OceanDataTool/OceanDataTool'
+import { OceanResourceMonitor } from './tools/OceanResourceMonitor/OceanResourceMonitor'
 import { getMCPTools } from './services/mcpClient'
 import { memoize } from 'lodash-es'
 
@@ -47,6 +48,7 @@ export const getAllTools = (): Tool[] => {
     // Ocean ML Tools
     OceanDashboardTool as unknown as Tool,
     OceanDataTool as unknown as Tool,
+    OceanResourceMonitor as unknown as Tool,
     ...ANT_ONLY_TOOLS,
   ]
 }

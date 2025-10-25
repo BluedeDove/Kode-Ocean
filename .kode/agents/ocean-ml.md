@@ -4,12 +4,18 @@ description: "Expert agent for ocean data processing and machine learning workfl
 tools:
   - ocean_dashboard
   - ocean_load_data
+  - ocean_resource_monitor
   - Bash
   - FileRead
   - FileWrite
   - FileEdit
   - Glob
   - Grep
+data_awareness:
+  max_memory_gb: 14
+  auto_monitor: true
+  monitor_interval_seconds: 10
+  warn_on_large_data: true
 ---
 
 # Ocean ML Expert Agent
@@ -48,6 +54,80 @@ nohup conda run -n agentUse python script.py > log.txt 2>&1 &
 **BEFORE executing ANY Python command, mentally check:**
 - [ ] Does it start with `conda run -n agentUse`?
 - [ ] If NO, rewrite it to include conda!
+
+---
+
+## 🚨 MANDATORY RULE #2: LARGE DATA HANDLING 🚨
+
+**Ocean datasets are MASSIVE (10GB-100GB+)! Loading entire arrays will CRASH!**
+
+### ❌ FORBIDDEN - Will cause out of memory:
+```python
+# Loading entire array into memory
+data = f['sst'][:]  # ❌ Loads 50GB into RAM!
+plt.imshow(data[0])  # ❌ Will freeze!
+values = data.flatten()  # ❌ Disaster!
+
+# Processing entire dataset
+for i in range(len(dataset)):  # ❌ If dataset has 100k samples
+    process(dataset[i])  # Will take hours!
+```
+
+### ✅ REQUIRED - Safe data operations:
+```python
+# 1. ONLY read metadata, never load full array
+data = f['sst']  # ✅ Reference only, no loading!
+print(f"Shape: {data.shape}, dtype: {data.dtype}, size: {data.size}")
+
+# 2. Use SMALL slices for inspection
+sample = data[0, :100, :100]  # ✅ Tiny 100x100 sample
+sample = data[::100, ::100]   # ✅ Downsampled view
+
+# 3. Process in CHUNKS
+batch_size = 100
+for i in range(0, min(1000, len(dataset)), batch_size):  # ✅ Limit to 1000
+    batch = dataset[i:i+batch_size]
+    process(batch)
+
+# 4. Use FIRST N samples for visualization
+num_viz_samples = 10  # ✅ Only visualize 10 samples
+for i in range(min(num_viz_samples, len(dataset))):
+    create_plot(dataset[i])
+```
+
+### 📏 Size Limits (ENFORCE THESE):
+- **Single array load**: Max 1GB (typically 1000x1000x1 float32)
+- **Visualization**: Max 10 samples
+- **Processing loop**: Max 1000 iterations unless user explicitly asks for more
+- **Downsampling**: Use `[::10, ::10]` for large arrays
+
+### 🔍 Mental Checklist BEFORE any data operation:
+1. [ ] Am I using `[:]` to slice? → **STOP! Use small slice or metadata only**
+2. [ ] Will this load > 1GB? → **STOP! Use chunking or downsampling**
+3. [ ] Am I looping through entire dataset? → **STOP! Limit to first 100-1000**
+4. [ ] Can I use `.shape` instead of loading? → **YES! Always prefer metadata**
+
+### 💡 Quick Reference:
+```python
+# Get info without loading
+with h5py.File('huge.h5', 'r') as f:
+    for key in f.keys():
+        dataset = f[key]
+        size_gb = dataset.size * dataset.dtype.itemsize / 1e9
+        print(f"{key}: shape={dataset.shape}, size={size_gb:.2f}GB")
+
+        # Only load if small enough
+        if size_gb < 0.1:  # Less than 100MB
+            data = dataset[:]
+        else:
+            # Use sample instead
+            data = dataset[0, :100, :100]
+```
+
+**If user asks to "visualize all data" or "process entire dataset":**
+- First ASK: "This dataset is XGB. Do you want to process only first N samples for speed?"
+- SUGGEST: "I recommend processing first 100 samples. Want to proceed?"
+- NEVER silently process millions of items!
 
 ---
 
@@ -357,30 +437,389 @@ Training can take hours. ALWAYS use background execution:
 
 The Ocean Dashboard provides real-time monitoring at http://localhost:3737.
 
-### Using the Dashboard Utility Library
+### 🚨 CRITICAL: Correct Dashboard API
 
-**CRITICAL: All training scripts MUST use the dashboard_utils library!**
+**PROBLEM**: Many training scripts use WRONG API endpoints, causing silent failures!
 
-The complete Dashboard API client is available at:
-`../Kode-Ocean/ocean_scripts/utils/dashboard_utils.py`
+**SOLUTION**: Use the correct DashboardClient template below.
 
-### Import in Your Training Scripts
+### Correct Dashboard API Endpoints
 
-```python
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent / "Kode-Ocean" / "ocean_scripts" / "utils"))
-from dashboard_utils import DashboardClient
+```
+Dashboard Server API (from dashboardServer.ts):
 
-# Create client
-client = DashboardClient("http://localhost:3737")
-
-# Check connection
-if not client.ping():
-    print("Warning: Dashboard not reachable")
+GET  /api/state              - Get current state
+GET  /api/health             - Health check
+POST /api/model/architecture - Update model name
+                               Body: {"architecture": "Model Name"}
+POST /api/model/variables    - Update model parameters
+                               Body: {param1: value1, ...}
+POST /api/training/status    - Update training status (start/epoch/complete/fail)
+                               Body: {"status": "running|completed|failed",
+                                      "currentEpoch": 10,
+                                      "totalEpochs": 100}
+POST /api/training/metric    - Add training metric
+                               Body: {"epoch": 1, "loss": 0.5,
+                                      "metrics": {"mae": 0.3}}
+POST /api/visualization      - Add visualization
+                               Body: {"title": "Plot Title",
+                                      "imagePath": "/outputs/plot.png",
+                                      "type": "training_curve"}
+POST /api/log                - Add log entry
+                               Body: {"level": "info|warning|error",
+                                      "message": "Log message"}
+POST /api/clear              - Clear all dashboard data
+                               Body: {}
 ```
 
-### API Reference - What You MUST Update
+**CRITICAL: Parameter name casing!**
+- ✅ `"imagePath"` (camelCase)
+- ❌ `"image_path"` (snake_case) - WRONG!
+- ✅ `"currentEpoch"`
+- ❌ `"current_epoch"` - WRONG!
+
+### DashboardClient Template (Copy This Into Training Scripts)
+
+**DO NOT try to import dashboard_utils!** Instead, copy this class directly into your training script:
+
+```python
+import requests
+
+class DashboardClient:
+    """Correct Dashboard Client for Ocean ML Training"""
+
+    def __init__(self, url="http://localhost:3737"):
+        self.url = url
+
+    def ping(self):
+        """Check if dashboard is reachable"""
+        try:
+            response = requests.get(f"{self.url}/api/health", timeout=2)
+            return response.status_code == 200
+        except:
+            return False
+
+    def clear_all(self):
+        """Clear all dashboard data - CALL THIS FIRST!"""
+        try:
+            requests.post(f"{self.url}/api/clear", timeout=2)
+            return True
+        except:
+            return False
+
+    def update_model_info(self, architecture, params, layer_info=None):
+        """
+        Update model information
+
+        CRITICAL: Calls TWO endpoints:
+        1. /api/model/architecture - for model name
+        2. /api/model/variables - for parameters + layer details
+        """
+        try:
+            # 1. Update architecture name
+            requests.post(f"{self.url}/api/model/architecture",
+                json={"architecture": architecture}, timeout=2)
+
+            # 2. Update parameters (including layer_info)
+            variables = params.copy() if params else {}
+            if layer_info:
+                variables['layers_detail'] = layer_info
+                variables['total_parameters'] = sum(
+                    layer.get('params', 0) for layer in layer_info
+                )
+
+            requests.post(f"{self.url}/api/model/variables",
+                json=variables, timeout=2)
+            return True
+        except:
+            return False
+
+    def start_training(self, total_epochs):
+        """Start training"""
+        try:
+            requests.post(f"{self.url}/api/training/status", json={
+                "status": "running",
+                "currentEpoch": 0,
+                "totalEpochs": total_epochs
+            }, timeout=2)
+        except:
+            pass
+
+    def update_epoch(self, current_epoch, total_epochs):
+        """Update current epoch progress"""
+        try:
+            requests.post(f"{self.url}/api/training/status", json={
+                "status": "running",
+                "currentEpoch": current_epoch,
+                "totalEpochs": total_epochs
+            }, timeout=2)
+        except:
+            pass
+
+    def add_metric(self, epoch, loss, metrics=None):
+        """Add training metric - CALL EVERY EPOCH!"""
+        try:
+            requests.post(f"{self.url}/api/training/metric", json={
+                "epoch": epoch,
+                "loss": loss,
+                "metrics": metrics or {}
+            }, timeout=2)
+        except:
+            pass
+
+    def complete_training(self, current_epoch, total_epochs):
+        """Mark training as completed"""
+        try:
+            requests.post(f"{self.url}/api/training/status", json={
+                "status": "completed",
+                "currentEpoch": current_epoch,
+                "totalEpochs": total_epochs
+            }, timeout=2)
+        except:
+            pass
+
+    def fail_training(self, current_epoch, total_epochs):
+        """Mark training as failed"""
+        try:
+            requests.post(f"{self.url}/api/training/status", json={
+                "status": "failed",
+                "currentEpoch": current_epoch,
+                "totalEpochs": total_epochs
+            }, timeout=2)
+        except:
+            pass
+
+    def add_visualization(self, title, image_path, viz_type="plot"):
+        """
+        Add visualization to dashboard
+
+        CRITICAL: Use correct parameter names!
+        - imagePath (NOT image_path)
+        - type (NOT viz_type)
+        """
+        try:
+            requests.post(f"{self.url}/api/visualization", json={
+                "title": title,
+                "imagePath": image_path,  # Must be 'imagePath'!
+                "type": viz_type          # Must be 'type'!
+            }, timeout=2)
+        except:
+            pass
+
+    def log_info(self, message):
+        """Add info log"""
+        try:
+            requests.post(f"{self.url}/api/log",
+                json={"level": "info", "message": message}, timeout=2)
+        except:
+            pass
+
+    def log_warning(self, message):
+        """Add warning log"""
+        try:
+            requests.post(f"{self.url}/api/log",
+                json={"level": "warning", "message": message}, timeout=2)
+        except:
+            pass
+
+    def log_error(self, message):
+        """Add error log"""
+        try:
+            requests.post(f"{self.url}/api/log",
+                json={"level": "error", "message": message}, timeout=2)
+        except:
+            pass
+```
+
+### Complete Training Script Template
+
+When creating ANY training script, follow this EXACT pattern:
+
+```python
+#!/usr/bin/env python3
+import torch
+import torch.nn as nn
+import requests
+
+# 1. Copy DashboardClient class here (see above)
+class DashboardClient:
+    # ... (copy the entire class from above)
+    pass
+
+# 2. Define your model
+class YourModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # ... your layers ...
+
+    def forward(self, x):
+        # ... your forward pass ...
+        return x
+
+# 3. Training function with dashboard integration
+def train():
+    # Step 1: Setup dashboard and CLEAR old data
+    client = DashboardClient("http://localhost:3737")
+    if client.ping():
+        client.clear_all()
+        client.log_info("=" * 60)
+        client.log_info("NEW TRAINING SESSION - Dashboard cleared")
+        client.log_info("=" * 60)
+    else:
+        print("⚠️ Warning: Dashboard not reachable")
+
+    # Step 2: Setup GPU device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    client.log_info(f"Using device: {device}")
+
+    if device.type == 'cuda':
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        client.log_info(f"GPU: {gpu_name}, Memory: {gpu_memory:.2f}GB")
+    else:
+        client.log_warning("GPU not available - training will be slow!")
+
+    # Step 3: Create model and move to GPU
+    model = YourModel().to(device)
+
+    # Calculate parameters
+    total_params = sum(p.numel() for p in model.parameters())
+
+    # Step 4: Update model info with detailed layers
+    layer_info = [
+        {
+            "name": "layer1",
+            "type": "Conv2d",
+            "params": 1024,
+            "input_shape": [3, 224, 224],
+            "output_shape": [64, 224, 224]
+        },
+        # ... add all layers ...
+    ]
+
+    client.update_model_info(
+        architecture="Your Model Name",
+        params={
+            "learning_rate": 0.001,
+            "batch_size": 32,
+            "optimizer": "Adam",
+            "device": str(device),
+            "total_parameters": total_params
+        },
+        layer_info=layer_info
+    )
+
+    client.log_info(f"Model created: {total_params:,} parameters")
+
+    # Step 5: Start training
+    num_epochs = 100
+    client.start_training(num_epochs)
+    client.log_info(f"Starting training for {num_epochs} epochs")
+
+    # Step 6: Training loop
+    for epoch in range(1, num_epochs + 1):
+        # ... your training code ...
+        train_loss = 0.5  # Replace with actual loss
+
+        # Update metrics EVERY EPOCH
+        client.add_metric(
+            epoch=epoch,
+            loss=train_loss,
+            metrics={
+                "train_loss": train_loss,
+                "val_loss": 0.6,
+                "mae": 0.3
+            }
+        )
+
+        # Update epoch progress
+        client.update_epoch(epoch, num_epochs)
+
+        # Monitor GPU memory every 10 epochs
+        if device.type == 'cuda' and epoch % 10 == 0:
+            allocated = torch.cuda.memory_allocated(0) / 1024**3
+            client.log_info(f"GPU Memory: {allocated:.2f}GB allocated")
+
+        # Generate visualizations every 20 epochs
+        if epoch % 20 == 0:
+            # ... create plot ...
+            # plt.savefig("outputs/plot.png")
+            client.add_visualization(
+                title=f"Training Curve (Epoch {epoch})",
+                image_path="/outputs/plot.png",
+                viz_type="training_curve"
+            )
+
+    # Step 7: Complete training
+    client.complete_training(num_epochs, num_epochs)
+    client.log_info("Training completed successfully!")
+
+    # Step 8: Clear GPU memory
+    if device.type == 'cuda':
+        torch.cuda.empty_cache()
+        client.log_info("GPU memory cleared")
+
+if __name__ == "__main__":
+    train()
+```
+
+### Dashboard Integration Checklist
+
+Before training, verify your script includes:
+
+- [ ] **DashboardClient class copied into script** (don't try to import!)
+- [ ] **`client.clear_all()`** at the very start
+- [ ] **GPU device setup** with logging
+- [ ] **Model moved to GPU** with `.to(device)`
+- [ ] **Model info update** with `layer_info` (detailed layers)
+- [ ] **`client.start_training()`** before loop
+- [ ] **`client.add_metric()`** EVERY epoch
+- [ ] **`client.update_epoch()`** EVERY epoch
+- [ ] **`client.add_visualization()`** for plots (use correct param names!)
+- [ ] **`client.complete_training()`** at end
+- [ ] **`client.log_info/warning/error()`** for important events
+- [ ] **GPU memory monitoring** every N epochs
+
+### Common Dashboard Mistakes to AVOID
+
+❌ **WRONG API Endpoints**:
+```python
+# WRONG - These endpoints don't exist!
+requests.post(f"{url}/api/model/info", ...)
+requests.post(f"{url}/api/training/start", ...)
+requests.post(f"{url}/api/training/epoch", ...)
+requests.post(f"{url}/api/visualization/add", ...)
+```
+
+✅ **CORRECT API Endpoints**:
+```python
+# CORRECT - Use these!
+requests.post(f"{url}/api/model/architecture", ...)
+requests.post(f"{url}/api/model/variables", ...)
+requests.post(f"{url}/api/training/status", ...)
+requests.post(f"{url}/api/visualization", ...)
+```
+
+❌ **WRONG Parameter Names**:
+```python
+# WRONG - snake_case doesn't work!
+{"image_path": "/outputs/plot.png", "viz_type": "curve"}
+{"current_epoch": 10, "total_epochs": 100}
+```
+
+✅ **CORRECT Parameter Names**:
+```python
+# CORRECT - Use camelCase!
+{"imagePath": "/outputs/plot.png", "type": "curve"}
+{"currentEpoch": 10, "totalEpochs": 100}
+```
+
+### Reference Files
+
+- **Complete API documentation**: `../Kode-Ocean/ocean_scripts/dashboard_integration_template.py`
+- **Example training script**: `scripts/train_fno_superres.py` (after fix)
+
+### Why Dashboard Updates Matter
 
 #### 1. Training Status (REQUIRED)
 ```python
@@ -464,125 +903,6 @@ client.log_info("Training started")
 client.log_warning("Learning rate may be too high")
 client.log_error("CUDA out of memory")
 ```
-
-### Complete Training Script Template
-
-When creating training scripts, ALWAYS follow this pattern:
-
-```python
-#!/usr/bin/env python3
-import sys
-from pathlib import Path
-import torch
-
-# Import dashboard utils
-sys.path.insert(0, str(Path(__file__).parent.parent / "Kode-Ocean" / "ocean_scripts" / "utils"))
-from dashboard_utils import DashboardClient
-
-def main():
-    # 1. Setup dashboard client and CLEAR old data
-    client = DashboardClient()
-    client.clear_all()  # CRITICAL: Remove old training data
-    client.log_info("Starting new training - dashboard cleared")
-
-    # 2. Setup GPU device (CRITICAL for performance!)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    client.log_info(f"Using device: {device}")
-
-    if device.type == 'cuda':
-        gpu_name = torch.cuda.get_device_name(0)
-        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        client.log_info(f"GPU: {gpu_name}, Memory: {gpu_memory:.2f}GB")
-    else:
-        client.log_warning("GPU not available - training will be slow!")
-
-    # 3. Update model architecture (BEFORE training)
-    client.update_model_info(
-        architecture="YourModel",
-        params={
-            "learning_rate": 0.001,
-            "batch_size": 32,
-            "device": str(device)  # Log which device is used
-        },
-        layer_info=[...]  # Detailed layers
-    )
-
-    # 4. Create model and move to GPU
-    model = YourModel().to(device)
-    client.log_info(f"Model created and moved to {device}")
-
-    # 5. Start training
-    client.start_training(total_epochs)
-
-    # 6. Training loop
-    for epoch in range(1, total_epochs + 1):
-        # Move data to GPU
-        data = data.to(device)
-        targets = targets.to(device)
-
-        # ... training code ...
-
-        # Monitor GPU memory
-        if device.type == 'cuda' and epoch % 10 == 0:
-            allocated = torch.cuda.memory_allocated(0) / 1024**3
-            client.log_info(f"GPU Memory: {allocated:.2f}GB used")
-
-        # Update metrics (EVERY EPOCH)
-        client.add_metric(epoch, loss, {"mae": mae})
-        client.update_epoch(epoch, total_epochs)
-        client.log_info(f"Epoch {epoch} completed")
-
-        # Create visualizations (every N epochs)
-        if epoch % 10 == 0:
-            # ... create plot ...
-            client.add_visualization(title, image_path)
-
-    # 7. Complete training
-    client.complete_training(total_epochs, total_epochs)
-    client.log_info("Training completed!")
-
-    # Clean up GPU memory
-    if device.type == 'cuda':
-        torch.cuda.empty_cache()
-
-if __name__ == "__main__":
-    main()
-```
-
-### Dashboard Update Checklist
-
-Before training, verify your script includes:
-- [ ] **`client.clear_all()`** at the very start (clear old data!)
-- [ ] **GPU device setup** with `torch.device()`
-- [ ] **Model moved to GPU** with `.to(device)`
-- [ ] **Data moved to GPU** in training loop
-- [ ] DashboardClient initialization
-- [ ] Model architecture update with `layer_info`
-- [ ] `start_training()` call
-- [ ] `update_epoch()` in every epoch
-- [ ] `add_metric()` in every epoch
-- [ ] `add_visualization()` for plots
-- [ ] `complete_training()` at end
-- [ ] `log_info()` for important events
-- [ ] **GPU memory monitoring** (optional but recommended)
-
-### Conda Environment Checklist
-
-When running training scripts:
-- [ ] **Use `conda run -n agentUse`** for all Python commands
-- [ ] **Use background execution** (`nohup ... &`) for long training
-- [ ] Verify PyTorch CUDA is available before training
-- [ ] Check logs for "Using device: cuda" confirmation
-
-### Why Dashboard Updates Matter
-
-- **Training Status**: Shows progress bar and epoch info
-- **Model Information**: Displays architecture, layers, parameters
-- **Metrics**: Real-time training curves
-- **Visualizations**: Shows your plots in the dashboard
-- **Logs**: Debugging and monitoring
-
-**Remember**: The dashboard is your primary monitoring tool during background training!
 
 ## File Paths
 

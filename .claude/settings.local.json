@@ -1,13 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tree -L 2 -I 'node_modules|dist|.git' --charset ascii)",
-      "Bash(tree src -L 2 --charset ascii -I 'node_modules|dist|.git')",
-      "Bash(tree -L 3 -I 'node_modules|dist|.git' --charset ascii)",
-      "Bash(mkdir -p src/tools/OceanDashboardTool src/tools/OceanDataTool src/tools/OceanVisualizationTool src/tools/OceanModelTool src/tools/OceanTrainTool src/services/oceanDashboard ocean_scripts/utils)",
-      "Bash(bun run typecheck)",
-      "Bash(bun add socket.io)",
-      "Bash(git add -A)"
+      "Bash(git commit -m \"feat: Add MANDATORY conda environment enforcement at agent top\n\nCRITICAL FIX: AI was ignoring conda environment requirement\n\n**Problem:**\nAI executed bare ''python'' commands, causing:\n- ModuleNotFoundError (missing PyTorch, CUDA, etc.)\n- Using CPU instead of GPU\n- Wrong Python version (system Python 3.13 instead of conda env)\n\n**Solution:**\nAdded prominent MANDATORY RULE section at the very top of agent prompt:\n- Multiple warning symbols (⚠️🚨) for visibility\n- Clear WRONG vs CORRECT examples\n- Explanation of why conda is required\n- Mental checklist before executing Python commands\n\n**Location:**\nPlaced immediately after agent title, BEFORE all other content,\nensuring AI sees this rule first every time.\n\n**Examples Added:**\n❌ WRONG:\n  python script.py\n  cd somewhere && python script.py\n  nohup python script.py &\n\n✅ CORRECT:\n  conda run -n agentUse python script.py\n  cd somewhere && conda run -n agentUse python script.py\n  nohup conda run -n agentUse python script.py > log.txt 2>&1 &\n\nThis ensures AI will ALWAYS use conda environment for Python commands.\n\n🌊 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\")"
     ],
     "deny": [],
     "ask": []

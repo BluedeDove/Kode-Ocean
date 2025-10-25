@@ -137,7 +137,30 @@ export class OceanDashboardServer {
    */
   private setupMiddleware(): void {
     this.app.use(express.json())
+
+    // Serve static files from public directory (dashboard UI)
     this.app.use(express.static(join(__dirname, 'public')))
+
+    // CRITICAL: Serve static files from working directories (training outputs)
+    // This allows access to images like /outputs/plot.png from ocean-workspace
+
+    // Serve from current working directory
+    this.app.use(express.static(process.cwd()))
+
+    // Also serve from common ocean-workspace locations
+    const commonWorkspacePaths = [
+      join(process.cwd(), 'ocean-workspace'),
+      join(process.cwd(), '..', 'ocean-workspace'),
+      // Absolute path as fallback
+      'E:\\个人项目\\海洋KODE魔改\\ocean-workspace'
+    ]
+
+    for (const path of commonWorkspacePaths) {
+      if (existsSync(path)) {
+        this.app.use(express.static(path))
+        console.log(`[Dashboard] Serving static files from: ${path}`)
+      }
+    }
   }
 
   /**

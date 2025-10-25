@@ -15,14 +15,22 @@ import { memoize } from 'lodash-es'
 // Track warned agents to avoid spam
 const warnedAgents = new Set<string>()
 
+export interface DataAwarenessConfig {
+  max_memory_gb?: number          // Maximum memory threshold
+  auto_monitor?: boolean          // Auto-start resource monitoring
+  monitor_interval_seconds?: number  // Monitoring interval
+  warn_on_large_data?: boolean    // Warn when loading large arrays
+}
+
 export interface AgentConfig {
   agentType: string          // Agent identifier (matches subagent_type)
-  whenToUse: string          // Description of when to use this agent  
+  whenToUse: string          // Description of when to use this agent
   tools: string[] | '*'      // Tool permissions
   systemPrompt: string       // System prompt content
   location: 'built-in' | 'user' | 'project'
   color?: string            // Optional UI color
   model_name?: string       // Optional model override
+  data_awareness?: DataAwarenessConfig  // Data-aware configuration
 }
 
 // Built-in general-purpose agent as fallback
@@ -110,7 +118,9 @@ async function scanAgentDirectory(dirPath: string, location: 'user' | 'project')
           location,
           ...(frontmatter.color && { color: frontmatter.color }),
           // Only use model_name field, ignore deprecated 'model' field
-          ...(frontmatter.model_name && { model_name: frontmatter.model_name })
+          ...(frontmatter.model_name && { model_name: frontmatter.model_name }),
+          // Parse data_awareness configuration for data-aware agents
+          ...(frontmatter.data_awareness && { data_awareness: frontmatter.data_awareness })
         }
         
         agents.push(agent)

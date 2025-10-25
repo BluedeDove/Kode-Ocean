@@ -140,6 +140,26 @@ export const BashTool = {
     let stdout = ''
     let stderr = ''
 
+    // 🛡️ Check for dangerous data loading patterns (Ocean ML)
+    const dangerousPatterns = [
+      { pattern: /\[:\](?!\[:\d)/, message: 'Full array loading detected: [...][:]' },
+      { pattern: /\.flatten\(\)/, message: 'Array flattening detected: .flatten()' },
+      { pattern: /for\s+\w+\s+in\s+range\(len\(/, message: 'Full dataset iteration: for i in range(len(...))' }
+    ];
+
+    for (const { pattern, message } of dangerousPatterns) {
+      if (pattern.test(command)) {
+        yield {
+          type: 'progress',
+          content: {
+            type: 'text',
+            text: `⚠️ WARNING: ${message}\n\nThis operation may load huge amounts of data into memory!\n\nConsider using:\n- Small slices: data[:100, :100]\n- Metadata only: data.shape, data.dtype\n- Limited iterations: range(min(100, len(...)))\n\nProceed with caution!`
+          }
+        };
+        break; // Only show one warning
+      }
+    }
+
     // 🔧 Check if already cancelled before starting execution
     if (abortController.signal.aborted) {
       const data: Out = {
