@@ -18,6 +18,8 @@ import { ThinkTool } from './tools/ThinkTool/ThinkTool'
 import { TodoWriteTool } from './tools/TodoWriteTool/TodoWriteTool'
 import { WebSearchTool } from './tools/WebSearchTool/WebSearchTool'
 import { URLFetcherTool } from './tools/URLFetcherTool/URLFetcherTool'
+import { OceanDashboardTool } from './tools/OceanDashboardTool/OceanDashboardTool'
+import { OceanDataTool } from './tools/OceanDataTool/OceanDataTool'
 import { getMCPTools } from './services/mcpClient'
 import { memoize } from 'lodash-es'
 
@@ -42,6 +44,9 @@ export const getAllTools = (): Tool[] => {
     TodoWriteTool as unknown as Tool,
     WebSearchTool as unknown as Tool,
     URLFetcherTool as unknown as Tool,
+    // Ocean ML Tools
+    OceanDashboardTool as unknown as Tool,
+    OceanDataTool as unknown as Tool,
     ...ANT_ONLY_TOOLS,
   ]
 }

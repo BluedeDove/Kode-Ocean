@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ocean ML Dashboard</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        }
+
+        .card-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+
+        .status-idle { background: #e0e0e0; color: #666; }
+        .status-running { background: #4caf50; color: white; animation: pulse 2s infinite; }
+        .status-paused { background: #ff9800; color: white; }
+        .status-completed { background: #2196f3; color: white; }
+        .status-error { background: #f44336; color: white; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .metric-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .metric-label {
+            font-weight: 500;
+            color: #666;
+        }
+
+        .metric-value {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+
+        .visualization-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+        }
+
+        .viz-card {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .viz-card img {
+            max-width: 100%;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        .viz-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .viz-timestamp {
+            font-size: 0.8em;
+            color: #999;
+        }
+
+        .log-container {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid #333;
+        }
+
+        .log-info { color: #4fc3f7; }
+        .log-warning { color: #ffb74d; }
+        .log-error { color: #e57373; }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 15px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            z-index: 1000;
+        }
+
+        .connected {
+            background: #4caf50;
+            color: white;
+        }
+
+        .disconnected {
+            background: #f44336;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="connection-status" id="connectionStatus">Connecting...</div>
+
+    <div class="container">
+        <h1>🌊 Ocean ML Dashboard</h1>
+
+        <div class="grid">
+            <!-- Training Status Card -->
+            <div class="card">
+                <div class="card-title">Training Status</div>
+                <div class="metric-item">
+                    <span class="metric-label">Status:</span>
+                    <span id="trainingStatus" class="status-badge status-idle">Idle</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Epoch:</span>
+                    <span id="epochInfo" class="metric-value">0 / 0</span>
+                </div>
+                <div class="progress-bar">
+                    <div id="trainingProgress" class="progress-fill" style="width: 0%">0%</div>
+                </div>
+            </div>
+
+            <!-- Model Info Card -->
+            <div class="card">
+                <div class="card-title">Model Information</div>
+                <div id="modelInfo">
+                    <div class="empty-state">No model loaded</div>
+                </div>
+            </div>
+
+            <!-- Data Info Card -->
+            <div class="card">
+                <div class="card-title">Data Information</div>
+                <div id="dataInfo">
+                    <div class="empty-state">No data loaded</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Training Metrics Chart -->
+        <div class="card">
+            <div class="card-title">Training Metrics</div>
+            <div class="chart-container">
+                <canvas id="metricsChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Visualizations -->
+        <div class="card">
+            <div class="card-title">Visualizations</div>
+            <div id="visualizations" class="visualization-grid">
+                <div class="empty-state">No visualizations yet</div>
+            </div>
+        </div>
+
+        <!-- Logs -->
+        <div class="card">
+            <div class="card-title">Logs</div>
+            <div id="logs" class="log-container">
+                <div class="log-entry log-info">[INFO] Dashboard initialized</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Connect to WebSocket
+        const socket = io();
+
+        // Chart instance
+        let metricsChart = null;
+
+        // Connection status
+        socket.on('connect', () => {
+            updateConnectionStatus(true);
+        });
+
+        socket.on('disconnect', () => {
+            updateConnectionStatus(false);
+        });
+
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.textContent = connected ? 'Connected' : 'Disconnected';
+            statusEl.className = `connection-status ${connected ? 'connected' : 'disconnected'}`;
+        }
+
+        // Initial state
+        socket.on('state:initial', (state) => {
+            updateTrainingStatus(state.trainingStatus, state.currentEpoch, state.totalEpochs);
+            updateModelInfo(state.modelVariables, state.modelArchitecture);
+            updateDataInfo(state.dataInfo);
+            updateMetricsChart(state.trainingMetrics);
+            updateVisualizations(state.visualizations);
+            updateLogs(state.logs);
+        });
+
+        // Training status updates
+        socket.on('training:status', ({ status, currentEpoch, totalEpochs }) => {
+            updateTrainingStatus(status, currentEpoch, totalEpochs);
+        });
+
+        function updateTrainingStatus(status, current, total) {
+            const statusEl = document.getElementById('trainingStatus');
+            statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+            statusEl.className = `status-badge status-${status}`;
+
+            document.getElementById('epochInfo').textContent = `${current} / ${total}`;
+
+            const progress = total > 0 ? (current / total * 100) : 0;
+            const progressEl = document.getElementById('trainingProgress');
+            progressEl.style.width = `${progress}%`;
+            progressEl.textContent = `${Math.round(progress)}%`;
+        }
+
+        // Model info updates
+        socket.on('model:variables', (variables) => {
+            updateModelInfo(variables);
+        });
+
+        socket.on('model:architecture', (architecture) => {
+            updateModelInfo(null, architecture);
+        });
+
+        function updateModelInfo(variables, architecture) {
+            const infoEl = document.getElementById('modelInfo');
+
+            if (!variables && !architecture) {
+                infoEl.innerHTML = '<div class="empty-state">No model loaded</div>';
+                return;
+            }
+
+            let html = '';
+
+            if (architecture) {
+                html += `<div class="metric-item">
+                    <span class="metric-label">Architecture:</span>
+                    <span class="metric-value">${architecture}</span>
+                </div>`;
+            }
+
+            if (variables && Object.keys(variables).length > 0) {
+                for (const [key, value] of Object.entries(variables)) {
+                    html += `<div class="metric-item">
+                        <span class="metric-label">${key}:</span>
+                        <span class="metric-value">${JSON.stringify(value)}</span>
+                    </div>`;
+                }
+            }
+
+            infoEl.innerHTML = html;
+        }
+
+        // Data info updates
+        socket.on('data:info', (dataInfo) => {
+            updateDataInfo(dataInfo);
+        });
+
+        function updateDataInfo(dataInfo) {
+            const infoEl = document.getElementById('dataInfo');
+
+            if (!dataInfo || !dataInfo.loaded) {
+                infoEl.innerHTML = '<div class="empty-state">No data loaded</div>';
+                return;
+            }
+
+            infoEl.innerHTML = `
+                <div class="metric-item">
+                    <span class="metric-label">Format:</span>
+                    <span class="metric-value">${dataInfo.format}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Shape:</span>
+                    <span class="metric-value">${dataInfo.shape.join(' × ')}</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Variables:</span>
+                    <span class="metric-value">${dataInfo.variables.join(', ')}</span>
+                </div>
+            `;
+        }
+
+        // Training metrics
+        socket.on('training:metric', (metric) => {
+            addMetricToChart(metric);
+        });
+
+        function updateMetricsChart(metrics) {
+            const ctx = document.getElementById('metricsChart').getContext('2d');
+
+            const epochs = metrics.map(m => m.epoch);
+            const losses = metrics.map(m => m.loss);
+
+            if (metricsChart) {
+                metricsChart.destroy();
+            }
+
+            metricsChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: epochs,
+                    datasets: [{
+                        label: 'Loss',
+                        data: losses,
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    }
+                }
+            });
+        }
+
+        function addMetricToChart(metric) {
+            if (!metricsChart) {
+                updateMetricsChart([metric]);
+                return;
+            }
+
+            metricsChart.data.labels.push(metric.epoch);
+            metricsChart.data.datasets[0].data.push(metric.loss);
+            metricsChart.update();
+        }
+
+        // Visualizations
+        socket.on('visualization:new', (viz) => {
+            addVisualization(viz);
+        });
+
+        function updateVisualizations(visualizations) {
+            const vizEl = document.getElementById('visualizations');
+
+            if (visualizations.length === 0) {
+                vizEl.innerHTML = '<div class="empty-state">No visualizations yet</div>';
+                return;
+            }
+
+            vizEl.innerHTML = visualizations.map(viz => `
+                <div class="viz-card">
+                    <div class="viz-title">${viz.title}</div>
+                    <div class="viz-timestamp">${new Date(viz.timestamp).toLocaleString()}</div>
+                    <img src="${viz.imagePath}" alt="${viz.title}">
+                </div>
+            `).join('');
+        }
+
+        function addVisualization(viz) {
+            const vizEl = document.getElementById('visualizations');
+
+            if (vizEl.querySelector('.empty-state')) {
+                vizEl.innerHTML = '';
+            }
+
+            const card = document.createElement('div');
+            card.className = 'viz-card';
+            card.innerHTML = `
+                <div class="viz-title">${viz.title}</div>
+                <div class="viz-timestamp">${new Date(viz.timestamp).toLocaleString()}</div>
+                <img src="${viz.imagePath}" alt="${viz.title}">
+            `;
+            vizEl.insertBefore(card, vizEl.firstChild);
+        }
+
+        // Logs
+        socket.on('log:new', (log) => {
+            addLog(log);
+        });
+
+        function updateLogs(logs) {
+            const logsEl = document.getElementById('logs');
+            logsEl.innerHTML = logs.map(log =>
+                `<div class="log-entry log-${log.level}">[${log.level.toUpperCase()}] ${log.message}</div>`
+            ).join('');
+            logsEl.scrollTop = logsEl.scrollHeight;
+        }
+
+        function addLog(log) {
+            const logsEl = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${log.level}`;
+            entry.textContent = `[${log.level.toUpperCase()}] ${log.message}`;
+            logsEl.appendChild(entry);
+            logsEl.scrollTop = logsEl.scrollHeight;
+        }
+
+        // Clear state
+        socket.on('state:cleared', () => {
+            location.reload();
+        });
+    </script>
+</body>
+</html>

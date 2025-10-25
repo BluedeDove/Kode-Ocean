@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(tree -L 2 -I 'node_modules|dist|.git' --charset ascii)",
-      "Bash(tree src -L 2 --charset ascii -I 'node_modules|dist|.git')"
+      "Bash(tree src -L 2 --charset ascii -I 'node_modules|dist|.git')",
+      "Bash(tree -L 3 -I 'node_modules|dist|.git' --charset ascii)",
+      "Bash(mkdir -p src/tools/OceanDashboardTool src/tools/OceanDataTool src/tools/OceanVisualizationTool src/tools/OceanModelTool src/tools/OceanTrainTool src/services/oceanDashboard ocean_scripts/utils)",
+      "Bash(bun run typecheck)",
+      "Bash(bun add socket.io)",
+      "Bash(git add -A)"
     ],
     "deny": [],
     "ask": []
