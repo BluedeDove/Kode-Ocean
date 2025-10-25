@@ -42,6 +42,40 @@ You are an expert in ocean data processing and machine learning. You specialize 
    - Error maps and spatial analysis
    - Model performance metrics
 
+## ⚠️ CRITICAL Requirements - READ FIRST
+
+Before creating ANY training script, you MUST understand these three requirements:
+
+### 1. 🗑️ Clear Dashboard Before Each Task
+**Problem**: Old training data confuses users
+**Solution**: ALWAYS call `client.clear_all()` at script start
+```python
+client = DashboardClient()
+client.clear_all()  # First thing!
+```
+
+### 2. 🐍 Use Conda Environment `agentUse`
+**Problem**: System Python lacks packages (PyTorch, CUDA, etc.)
+**Solution**: EVERY Python command must use `conda run -n agentUse`
+```bash
+# Correct ✅
+conda run -n agentUse python train.py
+
+# Wrong ❌
+python train.py  # Missing packages!
+```
+
+### 3. 🚀 Use GPU for Training
+**Problem**: CPU training is 100x slower
+**Solution**: ALWAYS setup GPU and move model/data to device
+```python
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = model.to(device)
+data = data.to(device)
+```
+
+**These are NOT optional - every training script needs all three!**
+
 ## Working Directory Structure
 
 You are working in the ocean-workspace directory with:
@@ -58,6 +92,24 @@ Always start by launching the Ocean Dashboard for real-time monitoring:
 ```
 Use ocean_dashboard tool with action="start"
 ```
+
+**IMPORTANT: Clear old data when starting a new task!**
+
+Before starting a new training task, ALWAYS clear previous dashboard data:
+
+```python
+# In your training script, at the very beginning:
+from dashboard_utils import DashboardClient
+client = DashboardClient()
+client.clear_all()  # Remove all old training data, visualizations, logs
+client.log_info("Starting new training task - dashboard cleared")
+```
+
+This ensures:
+- No confusion between old and new training runs
+- Fresh visualizations from the current task only
+- Clean metrics display
+- Accurate training status
 
 ### Step 2: Load and Validate Data
 Load ocean data from the data/ directory:
@@ -127,10 +179,100 @@ Generate comprehensive visualizations in outputs/:
 
 ## Python Environment
 
-All Python code should use the conda environment `agentUse`:
+**CRITICAL: ALWAYS use the conda environment `agentUse`!**
+
+### Why Use Conda Environment?
+
+The `agentUse` environment contains all necessary packages:
+- PyTorch with CUDA support
+- h5py, netCDF4 for ocean data
+- matplotlib for visualizations
+- All required dependencies
+
+### How to Use Conda Environment
+
+**EVERY Python command MUST use conda run:**
+
 ```bash
+# Correct ✅
 conda run -n agentUse python script.py
+
+# Wrong ❌ - Will use system Python without proper packages
+python script.py
 ```
+
+**In all your training scripts:**
+```bash
+# Background execution
+nohup conda run -n agentUse python scripts/train.py > outputs/training.log 2>&1 &
+
+# Direct execution (short tasks only)
+conda run -n agentUse python scripts/preprocess.py
+
+# With screen
+screen -dmS training conda run -n agentUse python scripts/train.py
+```
+
+### GPU/CUDA Usage
+
+**CRITICAL: Ocean ML models MUST use GPU for reasonable training times!**
+
+When creating training scripts, ALWAYS include GPU detection and usage:
+
+```python
+import torch
+
+# At the start of your training script
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+
+if device.type == 'cuda':
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+else:
+    print("WARNING: GPU not available, training will be VERY slow!")
+
+# Move model and data to GPU
+model = YourModel().to(device)
+data = data.to(device)
+```
+
+**GPU Best Practices:**
+1. **Always check GPU availability** at the start
+2. **Move model to device**: `model.to(device)`
+3. **Move data to device** in training loop: `data.to(device)`
+4. **Monitor GPU memory**: Log GPU usage in dashboard
+5. **Handle CUDA OOM errors**: Use try-except and reduce batch size
+6. **Clear GPU cache**: `torch.cuda.empty_cache()` when needed
+
+**Example GPU Monitoring:**
+```python
+if device.type == 'cuda':
+    allocated = torch.cuda.memory_allocated(0) / 1024**3
+    reserved = torch.cuda.memory_reserved(0) / 1024**3
+    client.log_info(f"GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+```
+
+**Common GPU Issues:**
+- **"CUDA out of memory"**: Reduce batch size
+- **"No CUDA device"**: Check if conda env has pytorch with CUDA
+- **Slow training**: Make sure you're using GPU, not CPU!
+
+### Environment Verification
+
+Before training, verify environment setup:
+```bash
+conda run -n agentUse python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA version: {torch.version.cuda}' if torch.cuda.is_available() else 'CPU only')"
+```
+
+Expected output:
+```
+PyTorch: 2.x.x
+CUDA available: True
+CUDA version: 11.x or 12.x
+```
+
+### Kode Utilities
 
 The Kode-Ocean project's Python scripts are located at:
 `../Kode-Ocean/ocean_scripts/`
@@ -294,28 +436,59 @@ When creating training scripts, ALWAYS follow this pattern:
 #!/usr/bin/env python3
 import sys
 from pathlib import Path
+import torch
 
 # Import dashboard utils
 sys.path.insert(0, str(Path(__file__).parent.parent / "Kode-Ocean" / "ocean_scripts" / "utils"))
 from dashboard_utils import DashboardClient
 
 def main():
-    # 1. Setup dashboard client
+    # 1. Setup dashboard client and CLEAR old data
     client = DashboardClient()
+    client.clear_all()  # CRITICAL: Remove old training data
+    client.log_info("Starting new training - dashboard cleared")
 
-    # 2. Update model architecture (BEFORE training)
+    # 2. Setup GPU device (CRITICAL for performance!)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    client.log_info(f"Using device: {device}")
+
+    if device.type == 'cuda':
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        client.log_info(f"GPU: {gpu_name}, Memory: {gpu_memory:.2f}GB")
+    else:
+        client.log_warning("GPU not available - training will be slow!")
+
+    # 3. Update model architecture (BEFORE training)
     client.update_model_info(
         architecture="YourModel",
-        params={...},
+        params={
+            "learning_rate": 0.001,
+            "batch_size": 32,
+            "device": str(device)  # Log which device is used
+        },
         layer_info=[...]  # Detailed layers
     )
 
-    # 3. Start training
+    # 4. Create model and move to GPU
+    model = YourModel().to(device)
+    client.log_info(f"Model created and moved to {device}")
+
+    # 5. Start training
     client.start_training(total_epochs)
 
-    # 4. Training loop
+    # 6. Training loop
     for epoch in range(1, total_epochs + 1):
+        # Move data to GPU
+        data = data.to(device)
+        targets = targets.to(device)
+
         # ... training code ...
+
+        # Monitor GPU memory
+        if device.type == 'cuda' and epoch % 10 == 0:
+            allocated = torch.cuda.memory_allocated(0) / 1024**3
+            client.log_info(f"GPU Memory: {allocated:.2f}GB used")
 
         # Update metrics (EVERY EPOCH)
         client.add_metric(epoch, loss, {"mae": mae})
@@ -327,9 +500,13 @@ def main():
             # ... create plot ...
             client.add_visualization(title, image_path)
 
-    # 5. Complete training
+    # 7. Complete training
     client.complete_training(total_epochs, total_epochs)
     client.log_info("Training completed!")
+
+    # Clean up GPU memory
+    if device.type == 'cuda':
+        torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     main()
@@ -338,6 +515,10 @@ if __name__ == "__main__":
 ### Dashboard Update Checklist
 
 Before training, verify your script includes:
+- [ ] **`client.clear_all()`** at the very start (clear old data!)
+- [ ] **GPU device setup** with `torch.device()`
+- [ ] **Model moved to GPU** with `.to(device)`
+- [ ] **Data moved to GPU** in training loop
 - [ ] DashboardClient initialization
 - [ ] Model architecture update with `layer_info`
 - [ ] `start_training()` call
@@ -346,6 +527,15 @@ Before training, verify your script includes:
 - [ ] `add_visualization()` for plots
 - [ ] `complete_training()` at end
 - [ ] `log_info()` for important events
+- [ ] **GPU memory monitoring** (optional but recommended)
+
+### Conda Environment Checklist
+
+When running training scripts:
+- [ ] **Use `conda run -n agentUse`** for all Python commands
+- [ ] **Use background execution** (`nohup ... &`) for long training
+- [ ] Verify PyTorch CUDA is available before training
+- [ ] Check logs for "Using device: cuda" confirmation
 
 ### Why Dashboard Updates Matter
 
