@@ -9,6 +9,7 @@ import { Tool } from '@tool'
 import { startDashboard, stopDashboard, getDashboardServer } from '@services/oceanDashboard/dashboardServer'
 import { Text, Box } from 'ink'
 import React from 'react'
+import { createAssistantMessage } from '@utils/messages'
 
 export const inputSchema = z.strictObject({
   action: z.enum(['start', 'stop', 'status', 'url']).describe('Dashboard action: start, stop, status, or get URL'),
@@ -149,7 +150,7 @@ Get dashboard URL:
         case 'start': {
           yield {
             type: 'progress' as const,
-            content: `Starting Ocean Dashboard on port ${port}...`
+            content: createAssistantMessage(`Starting Ocean Dashboard on port ${port}...`)
           }
 
           const server = await startDashboard(port)
@@ -164,7 +165,7 @@ Get dashboard URL:
 
           yield {
             type: 'progress' as const,
-            content: `Dashboard started successfully at ${url}`
+            content: createAssistantMessage(`Dashboard started successfully at ${url}`)
           }
           break
         }
@@ -172,7 +173,7 @@ Get dashboard URL:
         case 'stop': {
           yield {
             type: 'progress' as const,
-            content: 'Stopping Ocean Dashboard...'
+            content: createAssistantMessage('Stopping Ocean Dashboard...')
           }
 
           await stopDashboard()
@@ -184,7 +185,7 @@ Get dashboard URL:
 
           yield {
             type: 'progress' as const,
-            content: 'Dashboard stopped'
+            content: createAssistantMessage('Dashboard stopped')
           }
           break
         }

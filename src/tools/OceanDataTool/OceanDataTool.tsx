@@ -13,6 +13,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { getCwd } from '@utils/state'
 import { existsSync } from 'fs'
+import { createAssistantMessage } from '@utils/messages'
 
 const execFileAsync = promisify(execFile)
 
@@ -168,7 +169,7 @@ Dashboard has been updated with data information.`
 
       yield {
         type: 'progress' as const,
-        content: `Loading ocean data from ${filepath}...`
+        content: createAssistantMessage(`Loading ocean data from ${filepath}...`)
       }
 
       // Check if file exists
@@ -205,6 +206,10 @@ Dashboard has been updated with data information.`
 
       // Prepare command to run with conda
       // Use conda run to activate the agentUse environment
+      // Ensure default values are used if parameters are undefined
+      const actualDashboardUrl = dashboard_url || 'http://localhost:3737'
+      const actualFormat = format || 'auto'
+
       const args = [
         'run',
         '-n',
@@ -213,14 +218,14 @@ Dashboard has been updated with data information.`
         scriptPath,
         fullPath,
         '--dashboard-url',
-        dashboard_url,
+        actualDashboardUrl,
         '--format',
-        format
+        actualFormat
       ]
 
       yield {
         type: 'progress' as const,
-        content: 'Running data loader with conda environment agentUse...'
+        content: createAssistantMessage('Running data loader with conda environment agentUse...')
       }
 
       // Execute Python script
@@ -245,7 +250,7 @@ Dashboard has been updated with data information.`
       if (result.success) {
         yield {
           type: 'progress' as const,
-          content: `Data loaded: ${result.metadata!.format} with ${result.metadata!.variables.length} variables`
+          content: createAssistantMessage(`Data loaded: ${result.metadata!.format} with ${result.metadata!.variables.length} variables`)
         }
       }
 
