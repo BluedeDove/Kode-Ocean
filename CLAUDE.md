@@ -235,3 +235,47 @@ After making changes, test the CLI in different environments:
    - CLI wrapper uses `process.cwd()` to ensure commands run in user's current directory
    - Not in Kode's installation directory
    - Essential for file operations and project context
+
+# Note: Unclear Input
+
+**Original Note:** `dddwd`
+
+**Interpretation:** This input appears to be either:
+- A keyboard test or accidental input
+- Potentially a typo or incomplete thought
+- Possibly an abbreviation or code that needs clarification
+
+**Action Required:** Please provide additional context or clarification for this note to be properly documented.
+
+_Added on 2025/10/23 17:56:10 GMT+8_
+
+# DDD (Domain-Driven Design) Notes
+
+## Core Concepts
+
+### Strategic Design
+- **Bounded Contexts**: Clear boundaries around specific domain models
+- **Ubiquitous Language**: Shared vocabulary between developers and domain experts
+- **Context Mapping**: Relationships between different bounded contexts
+
+### Tactical Design
+- **Entities**: Objects with identity that persist over time
+- **Value Objects**: Immutable objects defined by their attributes
+- **Aggregates**: Clusters of associated objects treated as a single unit
+- **Domain Events**: Significant occurrences in the domain
+- **Repositories**: Mechanisms for retrieving domain objects
+- **Services**: Domain operations that don't fit naturally into entities/value objects
+
+## Key Principles
+- Focus on the core domain and domain logic
+- Collaborate with domain experts
+- Iteratively refine the model based on deeper understanding
+- Isolate the domain model from technical concerns
+
+## Benefits
+- Better alignment between software and business needs
+- More maintainable and expressive code
+- Improved communication between technical and business teams
+- Clearer system boundaries and responsibilities
+
+_Added on 2025/10/23 17:56:12 GMT+8_
